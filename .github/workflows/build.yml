@@ -1,19 +1,50 @@
 # This workflow will build the application image.
 name: build app
 
-on: [push, pull_request]
+on:
+  pull_request:
+    branches: [dev]
 
 jobs:
   build:
     name: Build app
     runs-on: ubuntu-latest
     steps:
-      - name: check out repository
+      - name: Check out repository
         uses: actions/checkout@v3
-      - name: build app image
-        env:
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-        run: |
-          docker-compose up --build -d
-          sleep 3
-          docker-compose down
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@v4.0.0
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: NOTION_SECRET=${{ secrets.NOTION_TOKEN }}
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/landing-page:latest
+
+  open-shift:
+    name: Deploy to OC
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install oc
+        uses: redhat-actions/oc-installer@v1.1
+      - name: Login to OpenShift
+        uses: redhat-actions/oc-login@v1.2
+        with:
+          openshift_server_url: ${{ secrets.OPENSHIFT_SERVER }}
+          openshift_token: ${{ secrets.OPENSHIFT_TOKEN }}
+          insecure_skip_tls_verify: true
+      - name: Create or switch project
+        uses: redhat-actions/oc-new-app@v1.3
+        with:
+          app_name: test-elixir
+          image: socuz/landing-page:latest
+      - name: Logout from OpenShift
+        run: oc logout
